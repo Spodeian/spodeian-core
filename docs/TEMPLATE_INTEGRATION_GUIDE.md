@@ -8,8 +8,8 @@ This guide explains how **`spodeian-core`** supports all three Spodeian applicat
 
 | Template | Primary Use Case | Crates Included | Deployment Targets |
 |---|---|---|---|
-| **`efficient-leptos-edge-template`** | Content sites, SEO landing pages, static dashboards, interactive calculators, zero-backend PWAs | `shared`, `app`, `web`, `ssg` | Cloudflare Pages, GitHub Pages, Netlify, AWS S3/CloudFront (Static SSR + WASM Hydration only) |
-| **`efficient-leptos-template`** | Apps that ship **both** a pre-rendered website **and** a Tauri v2 desktop binary sharing one reactive DOM UI | `shared`, `app`, `web`, `ssg`, `desktop` | Cloudflare Pages / GitHub Pages (SSR+Hydration) **and** Windows/macOS/Linux desktop (`Tauri v2` CSR) |
+| **`efficient-leptos-template`**, edge mode (`-d include_tauri_desktop=false`) | Content sites, SEO landing pages, static dashboards, interactive calculators, zero-backend PWAs | `shared`, `app`, `web`, `ssg` | Cloudflare Pages, GitHub Pages, Netlify, AWS S3/CloudFront (Static SSR + WASM Hydration only) |
+| **`efficient-leptos-template`**, desktop mode (default) | Apps that ship **both** a pre-rendered website **and** a Tauri v2 desktop binary sharing one reactive DOM UI | `shared`, `app`, `web`, `ssg`, `desktop` | Cloudflare Pages / GitHub Pages (SSR+Hydration) **and** Windows/macOS/Linux desktop (`Tauri v2` CSR) |
 | **`efficient-egui-template`** | Custom 2D/3D viewports, CAD/audio/science workstations, high-FPS plotting, immediate-mode canvases, single-binary GUI apps | `shared`, `app`, `desktop`, `web` | Native Desktop (`winit` + `wgpu`/`glow` + `mimalloc`), Static WASM SPA (Trunk), Android/iOS scaffolds |
 
 ---
@@ -103,11 +103,11 @@ In the hybrid Leptos template, heavy local compute (file ingestion, Rayon batch 
 
 ---
 
-## 6. Pure Static Edge SSR + Hydration (`efficient-leptos-edge-template` & Web Target)
+## 6. Pure Static Edge SSR + Hydration (`efficient-leptos-template` edge mode & Web Target)
 
 For zero-server static hosts (Cloudflare Pages, GitHub Pages, Netlify, S3/CloudFront):
 1. `cargo-leptos build --release` builds:
    - `crates/ssg` with feature `ssr` (native binary)
    - `crates/web` with feature `hydrate` (WASM bundle hashed in `/pkg/`)
 2. `ssg` renders every static route (`/` -> `index.html`, `/analytics` -> `analytics.html`, `/about` -> `about.html`, `/404` -> `404.html`), strips per-request nonces (`spodeian_web_utils::pwa::strip_nonce`), emits `sitemap.xml` and `robots.txt` (`generate_sitemap_xml` / `generate_robots_txt`), hashes inline scripts (`THEME_PREPAINT_SCRIPT`, Schema.org `generate_json_ld_webapp`) into `_headers` CSP directives, and stamps `sw.js` precache URLs + content hash build IDs.
-3. Cloudflare `_headers` and `_redirects` guarantee immutable asset caching (`max-age=31536000, immutable` on `/pkg/*`), strict CSP with zero `unsafe-eval`, and clean 404 routing.
+3. Cloudflare `_headers` guarantees immutable asset caching (`max-age=31536000, immutable` on `/pkg/*`), strict CSP with zero `unsafe-eval`, and clean 404 routing.

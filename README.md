@@ -35,13 +35,13 @@
 
 ## Template Presets & Multi-Target Technology Support
 
-All three official Spodeian application templates consume these crates flexibly according to their target architecture. See [`docs/TEMPLATE_INTEGRATION_GUIDE.md`](docs/TEMPLATE_INTEGRATION_GUIDE.md) for end-to-end recipes and architectural blueprints.
+The official Spodeian application templates (egui, and Leptos in desktop or edge mode) consume these crates flexibly according to their target architecture. See [`docs/TEMPLATE_INTEGRATION_GUIDE.md`](docs/TEMPLATE_INTEGRATION_GUIDE.md) for end-to-end recipes and architectural blueprints.
 
-| Technology | `efficient-egui-template` | `efficient-leptos-template` | `efficient-leptos-edge-template` | `spodeian-core` Enabler |
+| Technology | `efficient-egui-template` | `efficient-leptos-template` (desktop mode) | `efficient-leptos-template` (edge mode, `include_tauri_desktop=false`) | `spodeian-core` Enabler |
 |---|---|---|---|---|
 | **UI Framework** | `egui 0.36` / `eframe 0.36` (`spodeian-ui`) | `Leptos 0.8` (`ssr` + `hydrate` + `csr`) | `Leptos 0.8` (`ssr` + `hydrate` only) | `spodeian-ui`, `spodeian-leptos-ui`, `spodeian-tokens` |
 | **Desktop / Native** | Native Winit binary (`crates/desktop` + `mimalloc`) | Tauri v2 shell (`crates/desktop` + IPC commands) | *Excluded by design* (Zero desktop deps) | `spodeian-persist`, `spodeian-web-utils::invoke_tauri_ipc` |
-| **Web / Edge** | Trunk CSR WASM SPA + PWA (`sw.js`, `_headers`) | `cargo-leptos` + `ssg` static HTML + WASM hydration | `cargo-leptos` + `ssg` + JSON-LD + `sitemap.xml` + `_redirects` | `spodeian-web-utils::pwa`, `spodeian-leptos-ui` |
+| **Web / Edge** | Trunk CSR WASM SPA + PWA (`sw.js`, `_headers`) | `cargo-leptos` + `ssg` static HTML + WASM hydration | `cargo-leptos` + `ssg` + JSON-LD + `sitemap.xml` | `spodeian-web-utils::pwa`, `spodeian-leptos-ui` |
 | **Parallelism (`rayon`)** | Native Rayon pool / automatic WASM sequential fallback | Native SSR & Tauri Rayon pool / WASM fallback | Build-time SSR Rayon sweeps / WASM SIMD128 client | `spodeian-parallel` (`par_iter`, `join`, `current_num_threads`) |
 | **WASM (`wasm32`)** | Full `wasm32-unknown-unknown` canvas + IDB + blobs | Dual `hydrate` (web) & `csr` (Tauri) WASM targets | Pure `hydrate` WASM bundle + strict hash CSP | `spodeian-cache`, `spodeian-web-utils`, `spodeian-parallel` |
 | **WebGPU (`wgpu`)** | Primary `wgpu` renderer (`glow` fallback) + WGSL kernels | WebGPU compute probes + WGSL kernels via `sml-kernel` | `navigator.gpu` capability probe + WGSL shader ready | `sml-kernel` (`WgpuContext::new_async`, `run_compute_shader`) |
