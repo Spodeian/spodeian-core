@@ -53,7 +53,7 @@ jobs:
           WASM_BINDGEN_TEST_TIMEOUT: "120"
         run: |
           export CHROMEDRIVER="$CHROMEWEBDRIVER/chromedriver"
-          cargo test --target wasm32-unknown-unknown --lib --tests -p spodeian-cache -p spodeian-telemetry -p spodeian-web-utils
+          cargo test --target wasm32-unknown-unknown --lib --tests -p spodeian-cache -p spodeian-telemetry -p spodeian-web-utils -p spodeian-persist
 
       # tokenizers (via candle) builds oniguruma from C, so the Android check
       # needs the NDK's clang; cargo-ndk points cc-rs at it.

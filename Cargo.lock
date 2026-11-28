@@ -2963,7 +2963,7 @@ dependencies = [
 
 [[package]]
 name = "spodeian-core"
-version = "3.3.0"
+version = "3.4.0"
 dependencies = [
  "sml-kernel",
  "sml-lake",
@@ -3029,7 +3029,7 @@ dependencies = [
 
 [[package]]
 name = "spodeian-persist"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "js-sys",
  "serde",
@@ -3040,6 +3040,8 @@ dependencies = [
  "thiserror 2.0.21",
  "tracing",
  "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
  "web-sys",
 ]
 

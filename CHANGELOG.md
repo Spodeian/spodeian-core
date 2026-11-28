@@ -3,6 +3,14 @@
 All notable changes to `spodeian-core` are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
+## [3.4.0] - 2026-11-28
+
+### Added
+- `spodeian-persist` 0.1.2: `WebStateStore` (wasm32) keeps an app's serialized state as one IndexedDB record. It is loaded once at open and saved in the background: one write at a time, bursts coalesced, unchanged states skipped, and results reported through `take_loaded` / `take_outcome` plus an `on_change` callback for repaints. Saves queued before the load finishes never overwrite saved state. `LegacyLocations` lists local storage keys and IndexedDB databases from earlier code, which are cleared after the first successful save. `settled()` and `read_saved_state` support tests and tools.
+
+### Fixed
+- Apps using `save_state_multi_tier` on the web wrote state over 16 KB only to IndexedDB (or the Cache API), which `load_state_multi_tier_keys` never reads, so a reload restored an older local storage copy. `WebStateStore` replaces that path; the old functions are unchanged for compatibility.
+
 ## [3.3.0] - 2026-11-28
 
 ### Added

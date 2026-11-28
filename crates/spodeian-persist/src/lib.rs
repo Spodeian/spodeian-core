@@ -20,6 +20,12 @@ use tracing::{error, info, warn};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsCast;
 
+#[cfg(target_arch = "wasm32")]
+pub mod web_state;
+#[cfg(target_arch = "wasm32")]
+#[doc = "**Stability: Stable** — semver-guaranteed since v0.1.2"]
+pub use web_state::{LegacyLocations, SaveOutcome, WebStateStore};
+
 pub use spodeian_web_utils::{
     trigger_binary_download, trigger_text_download, try_trigger_binary_download,
     try_trigger_text_download,
