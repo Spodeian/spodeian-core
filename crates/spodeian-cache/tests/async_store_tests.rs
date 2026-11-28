@@ -128,3 +128,39 @@ fn async_tiered_store_batch_operations() {
     });
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn async_tiered_store_sweeps_superseded_values_on_open() {
+    let dir = fresh_dir("sweep");
+    block_on(async {
+        let store = AsyncTieredStore::<u32>::with_disk(10, &dir).expect("open");
+        for value in 0..5u32 {
+            store.put("k", value).await.expect("put");
+        }
+    });
+    let blobs = || {
+        std::fs::read_dir(&dir)
+            .unwrap()
+            .filter(|e| e.as_ref().unwrap().path().is_file())
+            .count()
+    };
+    assert_eq!(blobs(), 5);
+    let old = std::time::SystemTime::now() - spodeian_cache::GARBAGE_GRACE * 2;
+    for entry in std::fs::read_dir(&dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_file() {
+            std::fs::File::options()
+                .write(true)
+                .open(&path)
+                .unwrap()
+                .set_modified(old)
+                .unwrap();
+        }
+    }
+    block_on(async {
+        let reopened = AsyncTieredStore::<u32>::with_disk(10, &dir).expect("reopen");
+        assert_eq!(reopened.get("k").await.expect("get"), Some(4));
+    });
+    assert_eq!(blobs(), 1);
+    let _ = std::fs::remove_dir_all(&dir);
+}

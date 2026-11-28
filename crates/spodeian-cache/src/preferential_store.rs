@@ -63,13 +63,15 @@ impl PreferentialStore {
         })
     }
 
-    /// Opens native storage in `dir`.
+    /// Opens native storage in `dir`. Content left behind by earlier overwrites and removals is deleted on open (see
+    /// [`crate::ContentAddressedStorage::collect_garbage`]), so the directory must not hold
+    /// unnamed content.
     #[cfg(not(target_arch = "wasm32"))]
     #[doc = "**Stability: Stable** — semver-guaranteed since v1.1"]
     pub fn open_native(dir: impl AsRef<std::path::Path>) -> Result<Self, CacheError> {
-        Ok(Self {
-            cas: crate::ContentAddressedStorage::new(dir)?,
-        })
+        let cas = crate::ContentAddressedStorage::new(dir)?;
+        cas.collect_garbage()?;
+        Ok(Self { cas })
     }
 
     /// Saves `bytes` under `key` in the tier the router chooses, returning that tier.

@@ -267,3 +267,50 @@ fn test_tiered_memory_store_overwrite_replaces_spilled_value() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Backdates every content file in `dir` past the garbage-collection grace period.
+fn age_content(dir: &std::path::Path) {
+    let old = std::time::SystemTime::now() - spodeian_cache::GARBAGE_GRACE * 2;
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_file() {
+            std::fs::File::options()
+                .write(true)
+                .open(&path)
+                .unwrap()
+                .set_modified(old)
+                .unwrap();
+        }
+    }
+}
+
+fn content_files(dir: &std::path::Path) -> usize {
+    std::fs::read_dir(dir)
+        .unwrap()
+        .filter(|e| e.as_ref().unwrap().path().is_file())
+        .count()
+}
+
+#[test]
+fn test_cas_collect_garbage_removes_only_unreferenced_old_content() {
+    let dir = fresh_dir("gc");
+    let cas = ContentAddressedStorage::new(&dir).unwrap();
+    cas.put_named("state", b"v1").unwrap();
+    cas.put_named("state", b"v2").unwrap(); // leaves v1 behind
+    cas.put_named("gone", b"v3").unwrap();
+    cas.remove_named("gone").unwrap(); // leaves v3 behind
+    cas.put(b"unnamed").unwrap();
+    assert_eq!(content_files(&dir), 4);
+
+    // Recent content is kept even when nothing references it yet.
+    assert_eq!(cas.collect_garbage().unwrap(), 0);
+
+    age_content(&dir);
+    // Re-storing existing content marks it fresh, so it survives until its reference lands.
+    cas.put(b"v3").unwrap();
+    assert_eq!(cas.collect_garbage().unwrap(), 2); // v1 and the unnamed blob
+    assert_eq!(cas.get_named("state").unwrap(), b"v2");
+    assert!(cas.contains(&ContentAddressedStorage::compute_sha256(b"v3")));
+    assert_eq!(content_files(&dir), 2);
+    let _ = std::fs::remove_dir_all(&dir);
+}

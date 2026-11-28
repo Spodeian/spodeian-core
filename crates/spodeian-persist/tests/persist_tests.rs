@@ -174,3 +174,41 @@ fn test_key_value_multi_tier_priority_and_native_fallback() {
         })
     );
 }
+
+#[test]
+fn native_cas_saves_replace_instead_of_accumulating() {
+    let ns = format!("spodeian_persist_gc_test_{}", std::process::id());
+    let dir = std::env::temp_dir().join(&ns);
+    let _ = std::fs::remove_dir_all(&dir);
+    let files = || {
+        std::fs::read_dir(&dir)
+            .unwrap()
+            .filter(|e| e.as_ref().unwrap().path().is_file())
+            .count()
+    };
+    for count in 0..3 {
+        let json = format!(r#"{{"name":"s","count":{count}}}"#);
+        assert_eq!(
+            save_state_multi_tier("state", &json, &ns, None).unwrap(),
+            StorageBackend::NativeCas
+        );
+    }
+    // Superseded saves younger than the grace period are kept for now...
+    assert_eq!(files(), 3);
+    let old = std::time::SystemTime::now() - spodeian_cache::GARBAGE_GRACE * 2;
+    for entry in std::fs::read_dir(&dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_file() {
+            std::fs::File::options()
+                .write(true)
+                .open(&path)
+                .unwrap()
+                .set_modified(old)
+                .unwrap();
+        }
+    }
+    // ...and the next save sweeps them, leaving only the current state.
+    save_state_multi_tier("state", r#"{"name":"s","count":9}"#, &ns, None).unwrap();
+    assert_eq!(files(), 1);
+    let _ = std::fs::remove_dir_all(&dir);
+}

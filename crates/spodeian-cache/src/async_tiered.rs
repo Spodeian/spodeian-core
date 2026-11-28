@@ -86,7 +86,9 @@ impl<V: Serialize + DeserializeOwned + Clone> AsyncTieredStore<V> {
     }
 
     /// A store whose fallback tier is a content-addressed directory on disk. Items stored
-    /// by an earlier store on the same directory are available immediately.
+    /// by an earlier store on the same directory are available immediately. Content left behind by earlier overwrites and removals is deleted on open (see
+    /// [`crate::ContentAddressedStorage::collect_garbage`]), so the directory must not hold
+    /// unnamed content.
     #[cfg(not(target_arch = "wasm32"))]
     #[doc = "**Stability: Stable** — semver-guaranteed since v1.1"]
     pub fn with_disk(
@@ -94,6 +96,7 @@ impl<V: Serialize + DeserializeOwned + Clone> AsyncTieredStore<V> {
         dir: impl AsRef<std::path::Path>,
     ) -> Result<Self, CacheError> {
         let cas = crate::ContentAddressedStorage::new(dir)?;
+        cas.collect_garbage()?;
         let keys = cas
             .list_names()?
             .into_iter()

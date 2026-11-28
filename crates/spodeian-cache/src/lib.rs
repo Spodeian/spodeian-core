@@ -154,7 +154,14 @@ impl ContentAddressedStorage {
     pub fn put(&self, data: &[u8]) -> Result<String, CacheError> {
         let hash = Self::compute_sha256(data);
         let file_path = self.root_dir.join(&hash);
-        if !file_path.exists() {
+        if file_path.exists() {
+            // Mark reused content as fresh, so `collect_garbage` keeps it while the caller
+            // writes the reference that will point at it.
+            std::fs::File::options()
+                .write(true)
+                .open(&file_path)?
+                .set_modified(std::time::SystemTime::now())?;
+        } else {
             std::fs::write(&file_path, data)?;
         }
         Ok(hash)
@@ -315,4 +322,51 @@ impl ContentAddressedStorage {
         }
         Ok(names)
     }
+
+    /// Deletes stored content that no named reference points at, returning how many items
+    /// were removed. Overwriting or removing a reference leaves its old content behind, so
+    /// stores that keep their data under named references call this when they open.
+    ///
+    /// Content written in the last [`GARBAGE_GRACE`] is kept, so a `put_named` running in
+    /// another process (which stores the content before writing its reference) is never
+    /// swept. Unnamed content stored with [`Self::put`] counts as unreferenced: keep it in a
+    /// directory of its own.
+    #[doc = "**Stability: Stable** — semver-guaranteed since v1.3"]
+    pub fn collect_garbage(&self) -> Result<usize, CacheError> {
+        let referenced: std::collections::HashSet<String> = self
+            .list_names()?
+            .iter()
+            .filter_map(|name| self.resolve_name(name))
+            .collect();
+        let cutoff = std::time::SystemTime::now()
+            .checked_sub(GARBAGE_GRACE)
+            .unwrap_or(std::time::UNIX_EPOCH);
+        let mut removed = 0;
+        for entry in std::fs::read_dir(&self.root_dir)? {
+            let entry = entry?;
+            let Some(name) = entry.file_name().to_str().map(str::to_string) else {
+                continue;
+            };
+            // Only content files (64 hex digits); never `refs/` or anything else in the directory.
+            let is_content = name.len() == 64 && name.bytes().all(|b| b.is_ascii_hexdigit());
+            if !is_content || referenced.contains(&name) {
+                continue;
+            }
+            let metadata = entry.metadata()?;
+            if !metadata.is_file() || metadata.modified().is_ok_and(|t| t > cutoff) {
+                continue;
+            }
+            match std::fs::remove_file(entry.path()) {
+                Ok(()) => removed += 1,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e.into()),
+            }
+        }
+        Ok(removed)
+    }
 }
+
+/// How recently written content must be for [`ContentAddressedStorage::collect_garbage`]
+/// to keep it even when nothing references it yet.
+#[doc = "**Stability: Stable** — semver-guaranteed since v1.3"]
+pub const GARBAGE_GRACE: std::time::Duration = std::time::Duration::from_secs(60);

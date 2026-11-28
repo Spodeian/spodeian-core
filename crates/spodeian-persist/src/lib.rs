@@ -366,7 +366,8 @@ pub fn load_state_multi_tier_keys<T: DeserializeOwned>(
 
 /// Persists raw serialized JSON using preferential multi-tier routing:
 /// - `wasm32`: Cache API (large payloads > 512 KB), `localStorage` (< 16 KB), IndexedDB fallback.
-/// - native: content-addressed cache under `<temp_dir>/<cas_namespace>` plus optional atomic disk write.
+/// - native: an atomic file at `disk_fallback_path` when given; otherwise one entry per `key` in a
+///   content-addressed store under `<temp_dir>/<cas_namespace>`, replaced (not added to) on each save.
 pub fn save_state_multi_tier(
     key: &str,
     json_str: &str,
@@ -417,27 +418,37 @@ pub fn save_state_multi_tier(
 
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let _ = (key, &recommended_tier);
+        let _ = &recommended_tier;
+        if let Some(path) = disk_fallback_path {
+            write_atomic_str(path, json_str)?;
+            return Ok(StorageBackend::DiskFile);
+        }
+
         let safe_ns = if cas_namespace.trim().is_empty() {
             "spodeian_persist_cas"
         } else {
             cas_namespace
         };
         let cas_dir = std::env::temp_dir().join(safe_ns);
-        let cas_ok = ContentAddressedStorage::new(&cas_dir)
-            .and_then(|cas| cas.put(json_str.as_bytes()))
-            .is_ok();
-
-        if let Some(path) = disk_fallback_path {
-            write_atomic_str(path, json_str)?;
-            return Ok(StorageBackend::DiskFile);
+        // One named reference per key, with superseded copies swept, so repeated saves
+        // replace the state instead of adding a file each time.
+        let saved = ContentAddressedStorage::new(&cas_dir).and_then(|cas| {
+            cas.put_named(key, json_str.as_bytes())?;
+            if let Err(e) = cas.collect_garbage() {
+                warn!(
+                    "Could not remove superseded saves in {}: {e}",
+                    cas_dir.display()
+                );
+            }
+            Ok(())
+        });
+        match saved {
+            Ok(()) => Ok(StorageBackend::NativeCas),
+            Err(e) => {
+                warn!("Native CAS save failed for [{key}]: {e}");
+                Ok(StorageBackend::MemoryOnly)
+            }
         }
-
-        if cas_ok {
-            return Ok(StorageBackend::NativeCas);
-        }
-
-        Ok(StorageBackend::MemoryOnly)
     }
 }
 

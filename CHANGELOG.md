@@ -3,6 +3,15 @@
 All notable changes to `spodeian-core` are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
+## [3.3.0] - 2026-11-28
+
+### Added
+- `spodeian-cache` 1.3: `ContentAddressedStorage::collect_garbage` deletes content no named reference points at, keeping anything written in the last `GARBAGE_GRACE` (60 s) so a concurrent write is never swept. `put` of content that already exists now refreshes its timestamp for the same reason.
+
+### Fixed
+- `spodeian-cache`: overwriting or removing a named reference left the old content on disk forever, so native `AsyncTieredStore`, `PreferentialStore` and `TieredMemoryStore` directories grew with every update. They now collect garbage when opened; keep unnamed content out of their directories.
+- `spodeian-persist` 0.1.1: native `save_state_multi_tier` without a disk path stored a new file under `<temp>/<cas_namespace>` on every save and never removed any. It now keeps one named entry per key and sweeps superseded copies, including ones left by earlier versions. With a disk path it no longer writes the unused CAS copy as well.
+
 ## [3.2.0] - 2026-11-28
 
 ### Added

@@ -209,9 +209,16 @@ pub struct TieredMemoryStore<V> {
 
 impl<V: Serialize + DeserializeOwned + Clone> TieredMemoryStore<V> {
     /// Creates a new tiered store with the specified in-memory capacity and an optional CAS fallback directory.
+    /// Content left behind by earlier overwrites and removals is deleted on open (see
+    /// [`crate::ContentAddressedStorage::collect_garbage`]), so the directory must not hold
+    /// unnamed content.
     pub fn new(capacity: usize, fallback_dir: Option<&Path>) -> Result<Self, CacheError> {
         let fallback_cas = match fallback_dir {
-            Some(dir) => Some(ContentAddressedStorage::new(dir)?),
+            Some(dir) => {
+                let cas = ContentAddressedStorage::new(dir)?;
+                cas.collect_garbage()?;
+                Some(cas)
+            }
             None => None,
         };
 
