@@ -284,6 +284,92 @@ impl IndexedDbStore {
             .map_err(|e| js_error("committing IndexedDB delete", e))
     }
 
+    /// Stores every `(key, bytes)` pair in one transaction: all of them are written, or
+    /// (on error) none are. Far cheaper than one `put_bytes` per entry.
+    #[doc = "**Stability: Stable** — semver-guaranteed since v1.2"]
+    pub async fn put_many_bytes<K: AsRef<str>, B: AsRef<[u8]>>(
+        &self,
+        entries: &[(K, B)],
+    ) -> Result<(), CacheError> {
+        if entries.is_empty() {
+            return Ok(());
+        }
+        let (tx, store) = self.object_store(IdbTransactionMode::Readwrite)?;
+        for (key, bytes) in entries {
+            if let Err(e) = store.put_with_key(
+                &Uint8Array::from(bytes.as_ref()),
+                &JsValue::from_str(key.as_ref()),
+            ) {
+                let _ = tx.abort();
+                return Err(js_error("writing to IndexedDB", e));
+            }
+        }
+        await_transaction(&tx)
+            .await
+            .map_err(|e| js_error("committing IndexedDB write", e))
+    }
+
+    /// Retrieves the bytes for each key, in order, in one transaction. The reads are
+    /// pipelined rather than awaited one by one.
+    #[doc = "**Stability: Stable** — semver-guaranteed since v1.2"]
+    pub async fn get_many_bytes<K: AsRef<str>>(
+        &self,
+        keys: &[K],
+    ) -> Result<Vec<Option<Vec<u8>>>, CacheError> {
+        if keys.is_empty() {
+            return Ok(Vec::new());
+        }
+        let (tx, store) = self.object_store(IdbTransactionMode::Readonly)?;
+        let requests = keys
+            .iter()
+            .map(|key| store.get(&JsValue::from_str(key.as_ref())))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| js_error("reading from IndexedDB", e))?;
+        // The transaction completes only after every request has succeeded.
+        await_transaction(&tx)
+            .await
+            .map_err(|e| js_error("reading from IndexedDB", e))?;
+        requests
+            .iter()
+            .zip(keys)
+            .map(|(request, key)| {
+                let value = request
+                    .result()
+                    .map_err(|e| js_error("reading from IndexedDB", e))?;
+                if value.is_undefined() || value.is_null() {
+                    return Ok(None);
+                }
+                value
+                    .dyn_into::<Uint8Array>()
+                    .map(|a| Some(a.to_vec()))
+                    .map_err(|_| {
+                        CacheError::BrowserStorage(format!(
+                            "value for '{}' is not bytes",
+                            key.as_ref()
+                        ))
+                    })
+            })
+            .collect()
+    }
+
+    /// Deletes every key in one transaction. Missing keys are fine.
+    #[doc = "**Stability: Stable** — semver-guaranteed since v1.2"]
+    pub async fn delete_many<K: AsRef<str>>(&self, keys: &[K]) -> Result<(), CacheError> {
+        if keys.is_empty() {
+            return Ok(());
+        }
+        let (tx, store) = self.object_store(IdbTransactionMode::Readwrite)?;
+        for key in keys {
+            if let Err(e) = store.delete(&JsValue::from_str(key.as_ref())) {
+                let _ = tx.abort();
+                return Err(js_error("deleting from IndexedDB", e));
+            }
+        }
+        await_transaction(&tx)
+            .await
+            .map_err(|e| js_error("committing IndexedDB delete", e))
+    }
+
     /// Lists every key in the store, in IndexedDB key order.
     #[doc = "**Stability: Stable** — semver-guaranteed since v1.1"]
     pub async fn keys(&self) -> Result<Vec<String>, CacheError> {

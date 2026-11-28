@@ -13,7 +13,7 @@
 
 - **In-Memory Tier (`BoundedMemoryCache`)**: Sub-microsecond RAM cache with amortized $O(1)$ LRU eviction and access generation counters. Ideal for 60–120 FPS UI loops and hot working sets.
 - **Synchronous Tiered Store (`TieredMemoryStore`)**: Spills evicted items to cryptographic Content-Addressed Storage (CAS) on disk. Its fallback index persists across restarts; `flush()` saves the in-memory tier too.
-- **Asynchronous Tiered Store (`AsyncTieredStore`)**: Write-through: every `put` is durable in IndexedDB (web) or CAS (desktop) before it returns, with a bounded in-memory working set in front.
+- **Asynchronous Tiered Store (`AsyncTieredStore`)**: Write-through: every `put` is durable in IndexedDB (web) or CAS (desktop) before it returns, with a bounded in-memory working set in front. `put_many` / `get_many` / `remove_many` batch records into one IndexedDB transaction.
 - **Preferential Storage Router**: `PreferentialRouter` decides the tier; `PreferentialStore` carries it out: immutable or large binaries to the Cache API, structured records to IndexedDB, small non-JSON values to LocalStorage, and named CAS references on desktop.
 - **Browser Backends (`web`, wasm32 only)**: `IndexedDbStore`, `CacheApiStore`, `LocalStorageStore`, and `StorageManager` helpers (`request_persistent_storage`, `is_storage_persisted`, `storage_estimate`).
 - **Named References**: `ContentAddressedStorage::put_named` and `get_named` find data by a stable key after a restart.

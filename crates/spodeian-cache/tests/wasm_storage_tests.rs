@@ -140,6 +140,80 @@ async fn async_tiered_store_spills_to_indexed_db_and_reloads() {
 }
 
 #[wasm_bindgen_test]
+async fn indexed_db_batch_round_trip() {
+    let store = IndexedDbStore::open(&unique("idb-batch"), "records")
+        .await
+        .expect("open");
+    store
+        .put_many_bytes(&[("a", vec![1u8]), ("b", vec![2u8]), ("c", vec![3u8])])
+        .await
+        .expect("put many");
+    assert_eq!(
+        store
+            .get_many_bytes(&["c", "missing", "a"])
+            .await
+            .expect("get many"),
+        vec![Some(vec![3]), None, Some(vec![1])]
+    );
+    store
+        .delete_many(&["a", "missing"])
+        .await
+        .expect("delete many");
+    assert_eq!(store.keys().await.expect("keys"), vec!["b", "c"]);
+}
+
+#[wasm_bindgen_test]
+async fn async_tiered_store_batches_through_indexed_db() {
+    let db = unique("tiered-batch");
+    let store = AsyncTieredStore::<u32>::with_indexed_db(
+        1,
+        IndexedDbStore::open(&db, "items").await.expect("open idb"),
+    )
+    .await
+    .expect("open store");
+    let entries = (0..3u32).map(|i| (format!("k{i}"), i)).collect();
+    store.put_many(entries).await.expect("put many");
+    drop(store);
+
+    let reopened = AsyncTieredStore::<u32>::with_indexed_db(
+        1,
+        IndexedDbStore::open(&db, "items")
+            .await
+            .expect("reopen idb"),
+    )
+    .await
+    .expect("reopen store");
+    let keys: Vec<String> = ["k2", "k0", "nope"].map(String::from).to_vec();
+    assert_eq!(
+        reopened.get_many(&keys).await.expect("get many"),
+        vec![Some(2), Some(0), None]
+    );
+    assert_eq!(reopened.remove_many(&keys).await.expect("remove many"), 2);
+    assert_eq!(reopened.keys(), vec!["k1"]);
+}
+
+#[wasm_bindgen_test]
+async fn preferential_store_repeat_saves_stay_correct() {
+    let store = PreferentialStore::open_web(&unique("pref-repeat"))
+        .await
+        .expect("open");
+    for round in 0..3u32 {
+        store.save_json("cfg", &round).await.expect("save");
+        let loaded: Option<u32> = store.load_json("cfg").await.expect("load");
+        assert_eq!(loaded, Some(round));
+    }
+    // Moving to a tier read earlier still hides nothing stale.
+    let big = vec![7u8; 600 * 1024];
+    store
+        .save_bytes("cfg", &big, "application/octet-stream", false)
+        .await
+        .expect("to cache");
+    store.save_json("cfg", &9u32).await.expect("back to idb");
+    let loaded: Option<u32> = store.load_json("cfg").await.expect("load");
+    assert_eq!(loaded, Some(9));
+}
+
+#[wasm_bindgen_test]
 async fn storage_manager_helpers_resolve() {
     let estimate = storage_estimate().await.expect("estimate");
     assert!(estimate.quota_bytes > 0.0);

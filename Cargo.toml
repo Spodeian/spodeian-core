@@ -26,7 +26,7 @@ members = [
 # Release version of the workspace as a whole: the `spodeian-core` umbrella crate
 # inherits it and each release is tagged `v<version>`. Every other crate sets its
 # own version in its manifest, bumped by semver for that crate's own changes.
-version = "3.1.0"
+version = "3.2.0"
 authors = ["Liam <spodeian@proton.me>"]
 edition = "2024"
 license = "PolyForm-Noncommercial-1.0.0"
@@ -38,7 +38,7 @@ repository = "https://github.com/Spodeian/spodeian-core"
 # Internal crates: keep each requirement equal to that crate's own version.
 spodeian-parallel = { path = "crates/spodeian-parallel", version = "1.0.0" }
 spodeian-core = { path = "crates/spodeian-core", version = "^3.0.0" }
-spodeian-cache = { path = "crates/spodeian-cache", version = "1.1.0" }
+spodeian-cache = { path = "crates/spodeian-cache", version = "1.2.0" }
 spodeian-tokens = { path = "crates/spodeian-tokens", version = "1.1.0" }
 spodeian-telemetry = { path = "crates/spodeian-telemetry", version = "1.1.0" }
 spodeian-export = { path = "crates/spodeian-export", version = "2.0.0" }

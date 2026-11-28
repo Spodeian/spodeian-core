@@ -207,6 +207,120 @@ impl<V: Serialize + DeserializeOwned + Clone> AsyncTieredStore<V> {
         Ok(from_fallback || from_memory)
     }
 
+    /// Stores every `(key, value)` pair. On IndexedDB this is one transaction, so either
+    /// all of them become durable or (on error) none do and nothing is changed. On disk an
+    /// error can leave the entries before it written.
+    #[doc = "**Stability: Stable** — semver-guaranteed since v1.2"]
+    pub async fn put_many(&self, entries: Vec<(String, V)>) -> Result<(), CacheError> {
+        match &self.fallback {
+            Fallback::None => {}
+            #[cfg(not(target_arch = "wasm32"))]
+            Fallback::Disk(_) => {
+                // Disk writes are independent; each key is recorded as soon as it lands.
+                for (key, value) in &entries {
+                    self.write_fallback(key, value).await?;
+                }
+            }
+            #[cfg(target_arch = "wasm32")]
+            Fallback::IndexedDb(store) => {
+                let encoded = entries
+                    .iter()
+                    .map(|(key, value)| Ok((key.as_str(), serde_json::to_vec(value)?)))
+                    .collect::<Result<Vec<_>, CacheError>>()?;
+                store.put_many_bytes(&encoded).await?;
+                self.fallback_keys
+                    .borrow_mut()
+                    .extend(entries.iter().map(|(k, _)| k.clone()));
+            }
+        }
+        for (key, value) in entries {
+            self.cache_in_memory(key, value);
+        }
+        self.update_counts();
+        Ok(())
+    }
+
+    /// Retrieves the value for each key, in order. Keys missing from memory are read from
+    /// the fallback tier together (one IndexedDB transaction) and promoted into memory.
+    #[doc = "**Stability: Stable** — semver-guaranteed since v1.2"]
+    pub async fn get_many(&self, keys: &[String]) -> Result<Vec<Option<V>>, CacheError> {
+        let mut found: Vec<Option<V>> = Vec::with_capacity(keys.len());
+        let mut misses = Vec::new();
+        for (i, key) in keys.iter().enumerate() {
+            let hit = self.memory.borrow_mut().get(key).cloned();
+            if hit.is_some() {
+                self.metrics.borrow_mut().memory_hits += 1;
+            } else if self.fallback_keys.borrow().contains(key) {
+                misses.push(i);
+            }
+            found.push(hit);
+        }
+        if misses.is_empty() {
+            return Ok(found);
+        }
+
+        let loaded: Vec<Option<V>> = match &self.fallback {
+            Fallback::None => Vec::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            Fallback::Disk(_) => {
+                let mut out = Vec::with_capacity(misses.len());
+                for &i in &misses {
+                    out.push(self.read_fallback(&keys[i]).await?);
+                }
+                out
+            }
+            #[cfg(target_arch = "wasm32")]
+            Fallback::IndexedDb(store) => {
+                let wanted: Vec<&str> = misses.iter().map(|&i| keys[i].as_str()).collect();
+                store
+                    .get_many_bytes(&wanted)
+                    .await?
+                    .into_iter()
+                    .map(|bytes| bytes.map(|b| serde_json::from_slice(&b)).transpose())
+                    .collect::<Result<_, _>>()?
+            }
+        };
+        for (i, value) in misses.into_iter().zip(loaded) {
+            if let Some(value) = value {
+                self.metrics.borrow_mut().fallback_hits += 1;
+                self.cache_in_memory(keys[i].clone(), value.clone());
+                found[i] = Some(value);
+            }
+        }
+        self.update_counts();
+        Ok(found)
+    }
+
+    /// Removes every key from both tiers (one IndexedDB transaction). Returns how many
+    /// existed.
+    #[doc = "**Stability: Stable** — semver-guaranteed since v1.2"]
+    pub async fn remove_many(&self, keys: &[String]) -> Result<usize, CacheError> {
+        let durable: Vec<&str> = keys
+            .iter()
+            .filter(|k| self.fallback_keys.borrow().contains(k.as_str()))
+            .map(String::as_str)
+            .collect();
+        match &self.fallback {
+            Fallback::None => {}
+            #[cfg(not(target_arch = "wasm32"))]
+            Fallback::Disk(cas) => {
+                for key in &durable {
+                    cas.remove_named(&format!("{DISK_REF_PREFIX}{key}"))?;
+                }
+            }
+            #[cfg(target_arch = "wasm32")]
+            Fallback::IndexedDb(store) => store.delete_many(&durable).await?,
+        }
+        let mut removed = 0;
+        for key in keys {
+            let in_fallback = self.fallback_keys.borrow_mut().remove(key);
+            let in_memory = self.memory.borrow_mut().remove(key).is_some();
+            removed += usize::from(in_fallback || in_memory);
+        }
+        self.update_counts();
+        Ok(removed)
+    }
+
     /// Whether `key` exists in either tier.
     #[doc = "**Stability: Stable** — semver-guaranteed since v1.1"]
     pub fn contains(&self, key: &str) -> bool {

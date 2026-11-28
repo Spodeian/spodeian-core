@@ -40,6 +40,10 @@ pub struct PreferentialStore {
     indexed_db: crate::web::IndexedDbStore,
     #[cfg(target_arch = "wasm32")]
     cache: crate::web::CacheApiStore,
+    /// The tier each key was last saved to through this handle, so repeat saves skip
+    /// cleaning tiers they already cleaned.
+    #[cfg(target_arch = "wasm32")]
+    last_tier: std::cell::RefCell<std::collections::HashMap<String, StorageTier>>,
     #[cfg(not(target_arch = "wasm32"))]
     cas: crate::ContentAddressedStorage,
 }
@@ -55,6 +59,7 @@ impl PreferentialStore {
             local: crate::web::LocalStorageStore::open(&format!("{name}:"))?,
             indexed_db: crate::web::IndexedDbStore::open(&name, "records").await?,
             cache: crate::web::CacheApiStore::open(&name).await?,
+            last_tier: Default::default(),
         })
     }
 
@@ -93,15 +98,22 @@ impl PreferentialStore {
                 StorageTier::CacheApi => self.cache.put_bytes(key, bytes, content_type).await?,
                 StorageTier::NativeCas => unreachable!("the router never picks NativeCas on wasm"),
             }
+            // Loads read local storage, then IndexedDB, then the Cache API. A copy in a tier
+            // read before `tier` would shadow the new value, so it is always removed. A copy
+            // in a tier read after it is only wasted space: removed once per key and tier.
+            let first_save_here = self.last_tier.borrow().get(key) != Some(&tier);
             if tier != StorageTier::LocalStorage {
                 self.local.remove(key)?;
             }
-            if tier != StorageTier::IndexedDb {
+            if tier == StorageTier::CacheApi
+                || (tier == StorageTier::LocalStorage && first_save_here)
+            {
                 self.indexed_db.delete(key).await?;
             }
-            if tier != StorageTier::CacheApi {
+            if tier != StorageTier::CacheApi && first_save_here {
                 self.cache.delete(key).await?;
             }
+            self.last_tier.borrow_mut().insert(key.to_string(), tier);
         }
 
         #[cfg(not(target_arch = "wasm32"))]
@@ -148,6 +160,7 @@ impl PreferentialStore {
         #[cfg(target_arch = "wasm32")]
         {
             let existed = self.load_bytes(key).await?.is_some();
+            self.last_tier.borrow_mut().remove(key);
             self.local.remove(key)?;
             self.indexed_db.delete(key).await?;
             self.cache.delete(key).await?;

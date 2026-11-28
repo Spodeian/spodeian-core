@@ -100,3 +100,31 @@ fn preferential_store_native_round_trip() {
     });
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn async_tiered_store_batch_operations() {
+    let dir = fresh_dir("batch");
+    block_on(async {
+        let store = AsyncTieredStore::<u32>::with_disk(2, &dir).expect("open");
+        let entries = (0..4u32).map(|i| (format!("k{i}"), i)).collect();
+        store.put_many(entries).await.expect("put many");
+        assert_eq!(store.metrics().memory_items_count, 2);
+        assert_eq!(store.metrics().fallback_items_count, 4);
+
+        let keys: Vec<String> = ["k0", "missing", "k3"].map(String::from).to_vec();
+        assert_eq!(
+            store.get_many(&keys).await.expect("get many"),
+            vec![Some(0), None, Some(3)]
+        );
+
+        let reopened = AsyncTieredStore::<u32>::with_disk(2, &dir).expect("reopen");
+        let gone: Vec<String> = ["k1", "k2", "missing"].map(String::from).to_vec();
+        assert_eq!(reopened.remove_many(&gone).await.expect("remove many"), 2);
+        assert_eq!(reopened.keys(), vec!["k0", "k3"]);
+        assert_eq!(
+            reopened.get_many(&gone).await.expect("get removed"),
+            vec![None, None, None]
+        );
+    });
+    let _ = std::fs::remove_dir_all(&dir);
+}

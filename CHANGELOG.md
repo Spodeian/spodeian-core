@@ -3,6 +3,14 @@
 All notable changes to `spodeian-core` are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
+## [3.2.0] - 2026-11-28
+
+### Added
+- `spodeian-cache` 1.2: batch operations that run in one IndexedDB transaction: `IndexedDbStore::{put_many_bytes, get_many_bytes, delete_many}` and `AsyncTieredStore::{put_many, get_many, remove_many}`. Loading or saving N records costs one transaction instead of N sequential ones.
+
+### Changed
+- `spodeian-cache`: `PreferentialStore` repeat saves of a key to the same tier no longer delete it again from the tiers read after that one (the first save per session still does). A save still always clears tiers that would shadow the new value.
+
 ## [3.1.0] - 2026-11-23
 
 ### Added
